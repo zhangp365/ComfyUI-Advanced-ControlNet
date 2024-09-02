@@ -27,6 +27,7 @@ from comfy.ldm.modules.diffusionmodules.openaimodel import TimestepEmbedSequenti
 from comfy.model_patcher import ModelPatcher
 import comfy.ops
 import comfy.model_management
+import comfy.utils
 
 from .logger import logger
 from .utils import (BIGMAX, AbstractPreprocWrapper, disable_weight_init_clean_groupnorm,
@@ -114,9 +115,14 @@ class SparseModelPatcher(ModelPatcher):
         self.model: SparseControlNet
         super().__init__(*args, **kwargs)
     
-    def patch_model_lowvram(self, device_to=None, *args, **kwargs):
-        patched_model = super().patch_model_lowvram(device_to, *args, **kwargs)
+    def load(self, device_to=None, lowvram_model_memory=0, *args, **kwargs):
+        to_return = super().load(device_to=device_to, lowvram_model_memory=lowvram_model_memory, *args, **kwargs)
+        if lowvram_model_memory > 0:
+            self._patch_lowvram_extras(device_to=device_to)
+        self._handle_float8_pe_tensors()
+        return to_return
 
+    def _patch_lowvram_extras(self, device_to=None):
         if self.model.motion_wrapper is not None:
             # figure out the tensors (likely pe's) that should be cast to device besides just the named_modules
             remaining_tensors = list(self.model.motion_wrapper.state_dict().keys())
@@ -134,6 +140,22 @@ class SparseModelPatcher(ModelPatcher):
                 if device_to is not None:
                     comfy.utils.set_attr(self.model.motion_wrapper, key, comfy.utils.get_attr(self.model.motion_wrapper, key).to(device_to))
 
+    def _handle_float8_pe_tensors(self):
+        if self.model.motion_wrapper is not None:
+            remaining_tensors = list(self.model.motion_wrapper.state_dict().keys())
+            pe_tensors = [x for x in remaining_tensors if '.pe' in x]
+            is_first = True
+            for key in pe_tensors:
+                if is_first:
+                    is_first = False
+                    if comfy.utils.get_attr(self.model.motion_wrapper, key).dtype not in [torch.float8_e5m2, torch.float8_e4m3fn]:
+                        break
+                comfy.utils.set_attr(self.model.motion_wrapper, key, comfy.utils.get_attr(self.model.motion_wrapper, key).half())
+
+    # NOTE: no longer called by ComfyUI, but here for backwards compatibility
+    def patch_model_lowvram(self, device_to=None, *args, **kwargs):
+        patched_model = super().patch_model_lowvram(device_to, *args, **kwargs)
+        self._patch_lowvram_extras(device_to=device_to)
         return patched_model
 
     def clone(self):

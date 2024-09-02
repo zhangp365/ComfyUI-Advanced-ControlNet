@@ -237,9 +237,16 @@ class ControlNetPlusPlusAdvanced(ControlNet, AdvancedControlBase):
         self.single_control_type: str = None
 
     def get_universal_weights(self) -> ControlWeights:
-        # TODO: match actual layer count of model
-        raw_weights = [(self.weights.base_multiplier ** float(12 - i)) for i in range(13)]
-        return self.weights.copy_with_new_weights(raw_weights)
+        def cn_weights_func(idx: int, control: dict[str, list[Tensor]], key: str):
+            if key == "middle":
+                return 1.0
+            c_len = len(control[key])
+            raw_weights = [(self.weights.base_multiplier ** float((c_len) - i)) for i in range(c_len+1)]
+            raw_weights = raw_weights[:-1]
+            if key == "input":
+                raw_weights.reverse()
+            return raw_weights[idx]
+        return self.weights.copy_with_new_weights(new_weight_func=cn_weights_func)
 
     def verify_control_type(self, model_name: str, pp_group: PlusPlusInputGroup=None):
         if pp_group is not None:
@@ -323,8 +330,8 @@ class ControlNetPlusPlusAdvanced(ControlNet, AdvancedControlBase):
             if self.cond_hint[i] is not None:
                 if x_noisy.shape[0] != self.cond_hint[i].shape[0]:
                     self.cond_hint[i] = broadcast_image_to_extend(self.cond_hint[i], x_noisy.shape[0], batched_number)
-                    if self.cond_hint_types is not None:
-                        self.cond_hint_types = broadcast_image_to_extend(self.cond_hint_types, x_noisy.shape[0], batched_number)
+        if self.cond_hint_types is not None and x_noisy.shape[0] != self.cond_hint_types.shape[0]:
+            self.cond_hint_types = broadcast_image_to_extend(self.cond_hint_types, x_noisy.shape[0], batched_number, False)
         
         # prepare mask_cond_hint
         self.prepare_mask_cond_hint(x_noisy=x_noisy, t=t, cond=cond, batched_number=batched_number, dtype=dtype)
