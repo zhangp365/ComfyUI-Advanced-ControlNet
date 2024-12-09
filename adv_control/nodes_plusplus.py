@@ -26,6 +26,7 @@ class PlusPlusLoaderAdvanced:
         controlnet_path = folder_paths.get_full_path("controlnet", name)
         controlnet = load_controlnetplusplus(controlnet_path)
         controlnet.verify_control_type(name, plus_input)
+        controlnet.allow_condhint_latents = True
         return (controlnet, PlusPlusImageWrapper(plus_input),)
 
 
@@ -62,8 +63,10 @@ class PlusPlusInputNode:
             },
             "optional": {
                 "prev_plus_input": ("PLUS_INPUT",),
-                "autosize": ("ACNAUTOSIZE", {"padding": 0}),
                 #"strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": BIGMAX, "step": 0.01}),
+            },
+            "hidden": {
+                "autosize": ("ACNAUTOSIZE", {"padding": 0}),
             }
         }
     

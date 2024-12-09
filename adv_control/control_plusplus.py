@@ -22,7 +22,7 @@ import comfy.model_management
 import comfy.model_detection
 import comfy.utils
 
-from .utils import (AdvancedControlBase, ControlWeights, ControlWeightType, TimestepKeyframeGroup, AbstractPreprocWrapper,
+from .utils import (AdvancedControlBase, ControlWeights, ControlWeightType, TimestepKeyframeGroup, AbstractPreprocWrapper, Extras,
                     extend_to_batch_size, broadcast_image_to_extend)
 from .logger import logger
 
@@ -223,8 +223,8 @@ class ControlNetPlusPlus(ControlNetCLDM):
 
 
 class ControlNetPlusPlusAdvanced(ControlNet, AdvancedControlBase):
-    def __init__(self, control_model: ControlNetPlusPlus, timestep_keyframes: TimestepKeyframeGroup, global_average_pooling=False, device=None, load_device=None, manual_cast_dtype=None):
-        super().__init__(control_model=control_model, global_average_pooling=global_average_pooling, device=device, load_device=load_device, manual_cast_dtype=manual_cast_dtype)
+    def __init__(self, control_model: ControlNetPlusPlus, timestep_keyframes: TimestepKeyframeGroup, global_average_pooling=False, load_device=None, manual_cast_dtype=None):
+        super().__init__(control_model=control_model, global_average_pooling=global_average_pooling, load_device=load_device, manual_cast_dtype=manual_cast_dtype)
         AdvancedControlBase.__init__(self, super(), timestep_keyframes=timestep_keyframes, weights_default=ControlWeights.controlnet())
         self.add_compatible_weight(ControlWeightType.CONTROLNETPLUSPLUS)
         # for IDE type hint purposes
@@ -239,7 +239,7 @@ class ControlNetPlusPlusAdvanced(ControlNet, AdvancedControlBase):
     def get_universal_weights(self) -> ControlWeights:
         def cn_weights_func(idx: int, control: dict[str, list[Tensor]], key: str):
             if key == "middle":
-                return 1.0
+                return 1.0 * self.weights.extras.get(Extras.MIDDLE_MULT, 1.0)
             c_len = len(control[key])
             raw_weights = [(self.weights.base_multiplier ** float((c_len) - i)) for i in range(c_len+1)]
             raw_weights = raw_weights[:-1]
@@ -276,10 +276,10 @@ class ControlNetPlusPlusAdvanced(ControlNet, AdvancedControlBase):
             self.cond_hint_original = pp_group
         return to_return
 
-    def get_control_advanced(self, x_noisy: Tensor, t, cond, batched_number):
+    def get_control_advanced(self, x_noisy: Tensor, t, cond, batched_number, transformer_options):
         control_prev = None
         if self.previous_controlnet is not None:
-            control_prev = self.previous_controlnet.get_control(x_noisy, t, cond, batched_number)
+            control_prev = self.previous_controlnet.get_control(x_noisy, t, cond, batched_number, transformer_options)
 
         if self.timestep_range is not None:
             if t[0] > self.timestep_range[0] or t[0] < self.timestep_range[1]:
@@ -319,13 +319,13 @@ class ControlNetPlusPlusAdvanced(ControlNet, AdvancedControlBase):
                     self.cond_hint[pp_idx] = comfy.utils.common_upscale(actual_cond_hint_orig[self.sub_idxs], x_noisy.shape[3] * compression_ratio, x_noisy.shape[2] * compression_ratio, 'nearest-exact', "center")
                 else:
                     self.cond_hint[pp_idx] = comfy.utils.common_upscale(pp_input.image, x_noisy.shape[3] * compression_ratio, x_noisy.shape[2] * compression_ratio, 'nearest-exact', "center")
-                self.cond_hint[pp_idx] = self.cond_hint[pp_idx].to(device=self.device, dtype=dtype)
+                self.cond_hint[pp_idx] = self.cond_hint[pp_idx].to(device=x_noisy.device, dtype=dtype)
                 self.cond_hint_shape = self.cond_hint[pp_idx].shape
             # prepare cond_hint_controls to match batchsize
             if self.cond_hint_types.count_nonzero() == 0:
                 self.cond_hint_types = None
             else:
-                self.cond_hint_types = self.cond_hint_types.unsqueeze(0).to(device=self.device, dtype=dtype).repeat(x_noisy.shape[0], 1)
+                self.cond_hint_types = self.cond_hint_types.unsqueeze(0).to(device=x_noisy.device, dtype=dtype).repeat(x_noisy.shape[0], 1)
         for i in range(len(self.cond_hint)):
             if self.cond_hint[i] is not None:
                 if x_noisy.shape[0] != self.cond_hint[i].shape[0]:
