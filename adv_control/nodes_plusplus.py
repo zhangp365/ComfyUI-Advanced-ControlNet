@@ -29,6 +29,23 @@ class PlusPlusLoaderAdvanced:
         controlnet.allow_condhint_latents = True
         return (controlnet, PlusPlusImageWrapper(plus_input),)
 
+class PlusInput2ControlNetImage:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "plus_input": ("PLUS_INPUT", ),
+            }
+        }
+    
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "load_controlnet_plusplus"
+
+    CATEGORY = "Adv-ControlNet 🛂🅐🅒🅝/ControlNet++"
+
+    def load_controlnet_plusplus(self, plus_input: PlusPlusInputGroup):
+        return (PlusPlusImageWrapper(plus_input),)
+    
 
 class PlusPlusLoaderSingle:
     @classmethod
